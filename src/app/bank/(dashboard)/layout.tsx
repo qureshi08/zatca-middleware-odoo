@@ -1,7 +1,6 @@
 'use client';
 
 import BankHeader from '@/components/bank/BankHeader';
-import BankSidebar from '@/components/bank/BankSidebar';
 import { useBankAuthStore } from '@/store/bankAuthStore';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -29,9 +28,8 @@ export default function BankDashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
-      <BankSidebar />
-      <div className="flex flex-col flex-1 min-w-0 bg-slate-50">
+    <div className="flex min-h-screen flex-1 bg-slate-50">
+      <div className="flex flex-col flex-1 min-w-0">
         <BankHeader />
         <main className="flex-1 p-6">
           <div className="max-w-[1200px] mx-auto">

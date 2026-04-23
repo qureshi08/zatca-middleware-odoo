@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useBankAuthStore } from '@/store/bankAuthStore';
 import { 
   ChevronLeft, Clock, Send, ShieldCheck, Stamp, CheckCircle2, 
@@ -12,9 +12,8 @@ import Link from 'next/link';
 import InvoiceForm from '@/components/bank/InvoiceForm';
 
 export default function BankInvoiceDetailPage() {
-  const router = useRouter();
   const { id } = useParams() as { id: string };
-  const { sessionToken, role, userName } = useBankAuthStore();
+  const { sessionToken, role, integrationConfigured } = useBankAuthStore();
   
   const [invoice, setInvoice] = useState<any>(null);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -65,7 +64,11 @@ export default function BankInvoiceDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Failed to process action');
+        const messageParts = [data.error || 'Failed to process action'];
+        if (Array.isArray(data?.invoice?.validationMessages) && data.invoice.validationMessages.length > 0) {
+          messageParts.push(`Validation: ${data.invoice.validationMessages.join(' | ')}`);
+        }
+        setError(messageParts.join('\n'));
         if (data.invoice) setInvoice(data.invoice); // Update status even on fail (e.g. failed_submission)
         return;
       }
@@ -131,6 +134,10 @@ export default function BankInvoiceDetailPage() {
   const isMaker = role === 'Maker' || role === 'Admin';
   const isChecker = role === 'Checker' || role === 'Admin';
   const isApprover = role === 'Approver' || role === 'Admin';
+  const submitBlockedReason =
+    !integrationConfigured
+      ? 'Integration is not configured. Ask Admin to complete Bank Setup first.'
+      : null;
 
   return (
     <div className="animate-pro pb-20">
@@ -419,11 +426,17 @@ export default function BankInvoiceDetailPage() {
                     <button 
                       onClick={() => handleAction('submit')}
                       className="btn-pro w-full h-10 px-4 bg-gradient-to-r from-blue-700 to-indigo-800 text-white flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30"
-                      disabled={actionLoading}
+                      disabled={actionLoading || !!submitBlockedReason}
+                      title={submitBlockedReason || ''}
                     >
                       <Globe size={15} />
                       Transmit to ZATCA
                     </button>
+                  )}
+                  {isApprover && invoice.status === 'approved_for_submission' && submitBlockedReason && (
+                    <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                      {submitBlockedReason}
+                    </p>
                   )}
 
                   {/* Any role can comment */}

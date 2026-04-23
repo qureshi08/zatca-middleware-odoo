@@ -759,6 +759,16 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
     return { success: false as const, error: 'Invoice must be approved before submission' };
   }
 
+  const baseUrl = (state.integration.middlewareBaseUrl || '').replace(/\/$/, '');
+  const apiKey = (state.integration.middlewareApiKey || '').trim();
+
+  if (!baseUrl) {
+    return { success: false as const, error: 'Middleware base URL is not configured. Ask Admin to configure integration settings.' };
+  }
+  if (!apiKey) {
+    return { success: false as const, error: 'Middleware API key is missing. Ask Admin to configure integration settings.' };
+  }
+
   invoice.status = 'submitted_to_middleware';
   invoice.updatedAt = nowIso();
   await writeState(state);
@@ -787,7 +797,6 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
   };
 
   // Call internal middleware invoice submission API
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
   let response: Response;
   let data: any;
 
@@ -796,7 +805,7 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': state.integration.middlewareApiKey || 'internal-bank-demo',
+        'x-api-key': apiKey,
       },
       body: JSON.stringify(payload),
     });

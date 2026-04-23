@@ -17,6 +17,15 @@ export async function POST(
   }
 
   const result = await submitInvoiceToMiddleware(session.user, id);
-  if (!result.success) return NextResponse.json({ error: result.error, invoice: (result as any).invoice }, { status: 400 });
+  if (!result.success) {
+    return NextResponse.json(
+      {
+        error: result.error,
+        invoice: (result as any).invoice,
+        middlewareResponse: (result as any).middlewareResponse,
+      },
+      { status: 400 }
+    );
+  }
   return NextResponse.json(result);
 }
