@@ -1,5 +1,3 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
 
@@ -153,8 +151,6 @@ export interface ProductState {
 
 /* ─── Helpers ─── */
 
-const PRODUCT_DATA_PATH = path.join(process.cwd(), '.bank-product-data.json');
-
 function nowIso() {
   return new Date().toISOString();
 }
@@ -231,24 +227,22 @@ function buildSeedState(): ProductState {
   };
 }
 
-/* ─── State IO ─── */
+/* ─── In-Memory State (Vercel-compatible) ─── */
+// Vercel serverless has a read-only filesystem. We use a global in-memory
+// singleton instead. Data persists across warm invocations within the same
+// instance, which is perfectly suited for a demo environment.
 
-async function ensureStateFile() {
-  try {
-    await fs.access(PRODUCT_DATA_PATH);
-  } catch {
-    await fs.writeFile(PRODUCT_DATA_PATH, JSON.stringify(buildSeedState(), null, 2), 'utf8');
-  }
-}
+const globalStore = globalThis as unknown as { __bankProductState?: ProductState };
 
 export async function readState(): Promise<ProductState> {
-  await ensureStateFile();
-  const raw = await fs.readFile(PRODUCT_DATA_PATH, 'utf8');
-  return JSON.parse(raw) as ProductState;
+  if (!globalStore.__bankProductState) {
+    globalStore.__bankProductState = buildSeedState();
+  }
+  return globalStore.__bankProductState;
 }
 
 async function writeState(next: ProductState) {
-  await fs.writeFile(PRODUCT_DATA_PATH, JSON.stringify(next, null, 2), 'utf8');
+  globalStore.__bankProductState = next;
 }
 
 export async function mutateState<T>(fn: (state: ProductState) => T): Promise<T> {
