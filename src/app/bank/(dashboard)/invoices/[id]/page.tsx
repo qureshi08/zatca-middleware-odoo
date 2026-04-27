@@ -109,8 +109,8 @@ export default function BankInvoiceDetailPage() {
 
   const steps = [
     { key: 'draft', label: 'Created', icon: Clock },
-    { key: 'submitted_for_check', label: 'For Check', icon: Send },
-    { key: 'checked', label: 'Checked', icon: ShieldCheck },
+    { key: 'submitted_for_check', label: 'Pending Verification', icon: Send },
+    { key: 'checked', label: 'Verified', icon: ShieldCheck },
     { key: 'approved_for_submission', label: 'Approved', icon: Stamp },
     { key: 'cleared', label: 'Submitted / Cleared', icon: CheckCircle2 }
   ];

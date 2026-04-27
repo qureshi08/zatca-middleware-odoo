@@ -1470,13 +1470,16 @@ export async function addWorkflowComment(
       by_name: actor.fullName,
       comment,
     });
-    const { data: updated } = await supabaseAdmin
+    const { data: updated, error: updateErr } = await supabaseAdmin
       .from('bank_invoices')
       .update({ last_comment: comment, updated_at: nowIso() })
       .eq('id', invoiceId)
       .eq('organization_id', actor.organizationId)
       .select('*')
       .single();
+
+    if (updateErr || !updated) return { success: false as const, error: updateErr?.message || 'Update failed' };
+
     return {
       success: true as const,
       invoice: {
@@ -1602,7 +1605,7 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
       : (data?.zatcaStatus === 'REJECTED' ? 'rejected' : 'failed_submission');
     const nextAssignee = success ? null : 'Approver';
 
-    const { data: updated } = await supabaseAdmin
+    const { data: updated, error: updateErr } = await supabaseAdmin
       .from('bank_invoices')
       .update({
         workflow_status: nextStatus,
@@ -1620,6 +1623,10 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
       .eq('organization_id', actor.organizationId)
       .select('*')
       .single();
+
+    if (updateErr || !updated) {
+       return { success: false as const, error: `DB Update Error: ${updateErr?.message || 'No data'}` };
+    }
 
     const invoiceResult = {
       id: updated.id,
