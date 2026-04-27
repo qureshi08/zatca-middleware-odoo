@@ -94,6 +94,8 @@ export interface InvoiceRecord {
   validationMessages?: string[];
   lastComment?: string;
   workflowComments?: WorkflowComment[];
+  originalInvoiceId?: string;
+  creditReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -958,14 +960,21 @@ export async function getInvoiceById(id: string, organizationId?: string) {
 export async function createInvoiceDraft(
   actor: ProductUser,
   input: {
-    invoiceNumber: string;
     customerId: string;
     type: 'standard' | 'simplified';
     documentType: '388' | '381' | '383';
     currency: string;
     items: InvoiceItemInput[];
+    originalInvoiceId?: string;
+    creditReason?: string;
   }
 ) {
+  // Generate ZATCA compliant invoice number
+  const prefix = input.documentType === '381' ? 'CN' : input.documentType === '383' ? 'DN' : 'INV';
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const randomStr = Math.floor(1000 + Math.random() * 9000).toString();
+  const invoiceNumber = `${prefix}-${dateStr}-${randomStr}`;
+
   if (actor.organizationId) {
     const { data: customerRow } = await supabaseAdmin
       .from('bank_customers')
@@ -976,13 +985,7 @@ export async function createInvoiceDraft(
       .maybeSingle();
     if (!customerRow) return { success: false as const, error: 'Customer not found or inactive' };
 
-    const { data: existingInvoice } = await supabaseAdmin
-      .from('bank_invoices')
-      .select('id')
-      .eq('organization_id', actor.organizationId)
-      .eq('invoice_number', input.invoiceNumber)
-      .maybeSingle();
-    if (existingInvoice) return { success: false as const, error: 'Invoice number already exists' };
+    // Invoice number is auto-generated, no manual uniqueness check needed
 
     const totals = computeTotals(input.items);
     const customerSnapshot = {
@@ -1004,7 +1007,7 @@ export async function createInvoiceDraft(
       .from('bank_invoices')
       .insert({
         organization_id: actor.organizationId,
-        invoice_number: input.invoiceNumber,
+        invoice_number: invoiceNumber,
         customer_id: input.customerId,
         invoice_type: input.type,
         document_type: input.documentType,
@@ -1016,6 +1019,8 @@ export async function createInvoiceDraft(
         customer_snapshot: customerSnapshot,
         created_by_user_id: actor.id,
         current_assignee_role: 'Maker',
+        original_invoice_id: input.originalInvoiceId || null,
+        credit_reason: input.creditReason || null,
       })
       .select('*')
       .single();
@@ -1037,6 +1042,8 @@ export async function createInvoiceDraft(
         createdByUserId: data.created_by_user_id,
         currentAssigneeRole: data.current_assignee_role,
         workflowComments: [],
+        originalInvoiceId: data.original_invoice_id || undefined,
+        creditReason: data.credit_reason || undefined,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
       },
@@ -1046,13 +1053,11 @@ export async function createInvoiceDraft(
   return mutateState((state) => {
     const customer = state.customers.find((c) => c.id === input.customerId && c.status === 'active');
     if (!customer) return { success: false as const, error: 'Customer not found or inactive' };
-    if (state.invoices.some((inv) => inv.invoiceNumber === input.invoiceNumber)) {
-      return { success: false as const, error: 'Invoice number already exists' };
-    }
+    // Invoice number is auto-generated, no manual uniqueness check needed
     const totals = computeTotals(input.items);
     const invoice: InvoiceRecord = {
       id: createId(),
-      invoiceNumber: input.invoiceNumber,
+      invoiceNumber,
       customerId: customer.id,
       type: input.type,
       documentType: input.documentType,
@@ -1065,6 +1070,8 @@ export async function createInvoiceDraft(
       createdByUserId: actor.id,
       currentAssigneeRole: 'Maker',
       workflowComments: [],
+      originalInvoiceId: input.originalInvoiceId,
+      creditReason: input.creditReason,
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
@@ -1098,6 +1105,8 @@ export async function updateInvoiceDraft(
     documentType?: '388' | '381' | '383';
     currency?: string;
     items?: InvoiceItemInput[];
+    originalInvoiceId?: string;
+    creditReason?: string;
   }
 ) {
   if (actor.organizationId) {
@@ -1154,6 +1163,8 @@ export async function updateInvoiceDraft(
       items: nextItems,
       total_amount: totals.totalAmount,
       vat_amount: totals.vatAmount,
+      original_invoice_id: input.originalInvoiceId !== undefined ? input.originalInvoiceId : invoice.original_invoice_id,
+      credit_reason: input.creditReason !== undefined ? input.creditReason : invoice.credit_reason,
       updated_at: nowIso(),
     };
 
@@ -1182,6 +1193,8 @@ export async function updateInvoiceDraft(
         createdByUserId: updated.created_by_user_id,
         currentAssigneeRole: updated.current_assignee_role,
         workflowComments: [],
+        originalInvoiceId: updated.original_invoice_id || undefined,
+        creditReason: updated.credit_reason || undefined,
         createdAt: updated.created_at,
         updatedAt: updated.updated_at,
       },
@@ -1213,6 +1226,8 @@ export async function updateInvoiceDraft(
       invoice.totalAmount = totals.totalAmount;
       invoice.vatAmount = totals.vatAmount;
     }
+    if (input.originalInvoiceId !== undefined) invoice.originalInvoiceId = input.originalInvoiceId;
+    if (input.creditReason !== undefined) invoice.creditReason = input.creditReason;
     invoice.updatedAt = nowIso();
 
     state.invoiceWorkflowEvents.unshift({
@@ -1351,6 +1366,8 @@ export async function transitionInvoice(
         createdByUserId: updated.created_by_user_id,
         currentAssigneeRole: updated.current_assignee_role,
         workflowComments: [],
+        originalInvoiceId: updated.original_invoice_id || undefined,
+        creditReason: updated.credit_reason || undefined,
         createdAt: updated.created_at,
         updatedAt: updated.updated_at,
       },
@@ -1575,7 +1592,21 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
         },
       },
       items: invoice.items || [],
+      originalInvoiceId: invoice.original_invoice_id ? undefined : undefined, // Will be replaced below
+      creditReason: invoice.credit_reason || undefined,
     };
+
+    // If originalInvoiceId is set, fetch the parent's invoice number
+    if (invoice.original_invoice_id) {
+      const { data: parentInvoice } = await supabaseAdmin
+        .from('bank_invoices')
+        .select('invoice_number')
+        .eq('id', invoice.original_invoice_id)
+        .maybeSingle();
+      if (parentInvoice) {
+        payload.originalInvoiceId = parentInvoice.invoice_number;
+      }
+    }
 
     let response: Response;
     let data: any;
@@ -1611,7 +1642,7 @@ export async function submitInvoiceToMiddleware(actor: ProductUser, invoiceId: s
         workflow_status: nextStatus,
         current_assignee_role: nextAssignee,
         middleware_status: data?.zatcaStatus || null,
-        middleware_invoice_id: data?.invoiceId || null,
+        middleware_invoice_id: null,
         middleware_uuid: data?.uuid || null,
         invoice_hash: data?.invoiceHash || null,
         qr_code: data?.qrCode || null,

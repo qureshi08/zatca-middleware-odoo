@@ -6,17 +6,20 @@ import { Trash2, Plus, AlertCircle } from 'lucide-react';
 interface InvoiceFormProps {
   initialData?: any;
   customers: any[];
+  invoices?: any[];
   onSave: (data: any) => Promise<void>;
   isSaving?: boolean;
 }
 
-export default function InvoiceForm({ initialData, customers, onSave, isSaving }: InvoiceFormProps) {
+export default function InvoiceForm({ initialData, customers, invoices, onSave, isSaving }: InvoiceFormProps) {
   const [form, setForm] = useState({
     invoiceNumber: '',
     customerId: '',
     type: 'simplified',
     documentType: '388',
     currency: 'SAR',
+    originalInvoiceId: '',
+    creditReason: '',
     items: [{ name: '', quantity: 1, unitPrice: 0, vatRate: 15, vatCategory: 'S' }],
   });
 
@@ -28,6 +31,8 @@ export default function InvoiceForm({ initialData, customers, onSave, isSaving }
         type: initialData.type || 'simplified',
         documentType: initialData.documentType || '388',
         currency: initialData.currency || 'SAR',
+        originalInvoiceId: initialData.originalInvoiceId || '',
+        creditReason: initialData.creditReason || '',
         items: initialData.items?.length > 0 ? initialData.items : [{ name: '', quantity: 1, unitPrice: 0, vatRate: 15, vatCategory: 'S' }],
       });
     }
@@ -81,28 +86,49 @@ export default function InvoiceForm({ initialData, customers, onSave, isSaving }
     onSave(form);
   };
 
+  const handleParentInvoiceSelect = (parentId: string) => {
+    const parent = invoices?.find(inv => inv.id === parentId);
+    if (parent) {
+      setForm(f => ({
+        ...f,
+        originalInvoiceId: parentId,
+        customerId: parent.customerId || parent.customerSnapshot?.id || '',
+        type: parent.type || 'simplified', // Match simplified/standard based on parent
+        items: parent.items?.length > 0 ? parent.items : [{ name: '', quantity: 1, unitPrice: 0, vatRate: 15, vatCategory: 'S' }]
+      }));
+    } else {
+      setForm(f => ({ ...f, originalInvoiceId: parentId }));
+    }
+  };
+
+  const isCreditDebit = form.documentType === '381' || form.documentType === '383';
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bank-form-group">
           <label className="bank-form-label uppercase tracking-tighter font-black text-gray-400 text-[10px]">Invoice Number</label>
           <input 
-            className="input-pro" 
-            placeholder="INV-2024-001" 
-            value={form.invoiceNumber}
-            onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))}
-            required 
+            className="input-pro bg-gray-100 text-gray-500 cursor-not-allowed" 
+            value={initialData?.invoiceNumber || 'System Generated (ZATCA)'}
+            disabled 
           />
         </div>
         <div className="bank-form-group">
           <label className="bank-form-label uppercase tracking-tighter font-black text-gray-400 text-[10px]">Type</label>
           <select 
             className="input-pro"
-            value={form.type}
-            onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+            value={form.documentType}
+            onChange={e => setForm(f => ({ 
+              ...f, 
+              documentType: e.target.value,
+              // If switching back to normal invoice, clear reason and parent
+              ...(e.target.value === '388' && { originalInvoiceId: '', creditReason: '' })
+            }))}
           >
-            <option value="simplified">Simplified Tax Invoice</option>
-            <option value="standard">Standard Tax Invoice</option>
+            <option value="388">Tax Invoice</option>
+            <option value="381">Credit Note</option>
+            <option value="383">Debit Note</option>
           </select>
         </div>
         <div className="bank-form-group">
@@ -112,6 +138,7 @@ export default function InvoiceForm({ initialData, customers, onSave, isSaving }
             value={form.customerId}
             onChange={e => setForm(f => ({ ...f, customerId: e.target.value }))}
             required
+            disabled={isCreditDebit} // Disabled if it's auto-filled from parent
           >
             <option value="">Select Buyer...</option>
             {customers.map(c => (
@@ -119,6 +146,50 @@ export default function InvoiceForm({ initialData, customers, onSave, isSaving }
             ))}
           </select>
         </div>
+      </div>
+
+      {isCreditDebit && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-amber-50/50 p-4 rounded-xl border border-amber-100/50">
+          <div className="bank-form-group">
+            <label className="bank-form-label uppercase tracking-tighter font-black text-amber-700 text-[10px]">Original Reference Invoice</label>
+            <select 
+              className="input-pro border-amber-200 focus:border-amber-400"
+              value={form.originalInvoiceId}
+              onChange={e => handleParentInvoiceSelect(e.target.value)}
+              required
+            >
+              <option value="">Select an Approved/Cleared Invoice...</option>
+              {invoices?.map(inv => (
+                <option key={inv.id} value={inv.id}>{inv.invoiceNumber} - SAR {inv.totalAmount.toLocaleString()}</option>
+              ))}
+            </select>
+          </div>
+          <div className="bank-form-group">
+            <label className="bank-form-label uppercase tracking-tighter font-black text-amber-700 text-[10px]">{form.documentType === '381' ? 'Credit' : 'Debit'} Reason</label>
+            <input 
+              className="input-pro border-amber-200 focus:border-amber-400" 
+              placeholder={`Reason for ${form.documentType === '381' ? 'Credit' : 'Debit'} Note...`}
+              value={form.creditReason}
+              onChange={e => setForm(f => ({ ...f, creditReason: e.target.value }))}
+              required 
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bank-form-group">
+          <label className="bank-form-label uppercase tracking-tighter font-black text-gray-400 text-[10px]">Transaction Type</label>
+          <select 
+            className="input-pro"
+            value={form.type}
+            onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+          >
+            <option value="simplified">Simplified (B2C)</option>
+            <option value="standard">Standard (B2B)</option>
+          </select>
+        </div>
+        <div className="col-span-2"></div>
       </div>
 
       <div className="card-pro overflow-hidden border-gray-100 shadow-sm bg-gray-50/20">

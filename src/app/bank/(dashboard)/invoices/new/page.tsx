@@ -14,15 +14,26 @@ export default function BankNewInvoicePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [invoices, setInvoices] = useState<any[]>([]);
+
   useEffect(() => {
     if (!sessionToken) return;
     if (role !== 'Admin' && role !== 'Maker') {
       router.push('/bank/invoices');
       return;
     }
-    fetch('/api/bank/product/customers', { headers: { 'x-session-token': sessionToken } })
-      .then(res => res.json())
-      .then(data => setCustomers(data.customers || []))
+    Promise.all([
+      fetch('/api/bank/product/customers', { headers: { 'x-session-token': sessionToken } }).then(res => res.json()),
+      fetch('/api/bank/product/invoices', { headers: { 'x-session-token': sessionToken } }).then(res => res.json())
+    ])
+      .then(([customersData, invoicesData]) => {
+        setCustomers(customersData.customers || []);
+        // Only show cleared or reported invoices for credit/debit notes
+        const validInvoices = (invoicesData.invoices || []).filter((inv: any) => 
+          ['cleared', 'reported'].includes(inv.status)
+        );
+        setInvoices(validInvoices);
+      })
       .catch(() => undefined);
   }, [sessionToken, role, router]);
 
@@ -73,6 +84,7 @@ export default function BankNewInvoicePage() {
       <div className="card-pro p-6">
         <InvoiceForm 
           customers={customers} 
+          invoices={invoices}
           onSave={handleSave} 
           isSaving={isSaving} 
         />

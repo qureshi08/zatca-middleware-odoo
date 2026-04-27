@@ -17,6 +17,7 @@ export default function BankInvoiceDetailPage() {
   
   const [invoice, setInvoice] = useState<any>(null);
   const [customers, setCustomers] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [comment, setComment] = useState('');
@@ -34,9 +35,18 @@ export default function BankInvoiceDetailPage() {
       setInvoice(data.invoice);
 
       if (['draft', 'returned_by_checker', 'returned_by_approver'].includes(data.invoice.status)) {
-        const custResp = await fetch('/api/bank/product/customers', { headers: { 'x-session-token': sessionToken } });
+        const [custResp, invResp] = await Promise.all([
+          fetch('/api/bank/product/customers', { headers: { 'x-session-token': sessionToken } }),
+          fetch('/api/bank/product/invoices', { headers: { 'x-session-token': sessionToken } })
+        ]);
         const custData = await custResp.json();
+        const invData = await invResp.json();
         setCustomers(custData.customers || []);
+        
+        const validInvoices = (invData.invoices || []).filter((inv: any) => 
+          ['cleared', 'reported'].includes(inv.status)
+        );
+        setInvoices(validInvoices);
       }
     } catch (e: any) {
       setError(e.message);
@@ -335,7 +345,13 @@ export default function BankInvoiceDetailPage() {
                     <span className="text-[11px] font-black uppercase text-blue-600">Edit Mode Active</span>
                     <button onClick={() => setIsEditing(false)} className="text-[10px] font-bold text-gray-400 hover:text-gray-900">Cancel</button>
                   </div>
-                  <InvoiceForm initialData={invoice} customers={customers} onSave={handleEditSave} isSaving={actionLoading} />
+                  <InvoiceForm 
+                    initialData={invoice} 
+                    customers={customers} 
+                    invoices={invoices}
+                    onSave={handleEditSave} 
+                    isSaving={actionLoading} 
+                  />
                </div>
             ) : (
               <div className="space-y-4">
