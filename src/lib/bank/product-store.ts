@@ -430,7 +430,13 @@ export async function authenticateAndCreateSession(email: string, password: stri
     };
   }
 
-  // Fallback path: in-memory demo users
+  const demoUsersEnabled =
+    process.env.NODE_ENV !== 'production' || process.env.EGS_ENABLE_DEMO_USERS === 'true';
+  if (!demoUsersEnabled) {
+    return { success: false as const, error: 'Invalid credentials' };
+  }
+
+  // Fallback path: in-memory demo users (development/demo only)
   return mutateState((state) => {
     const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (!user || user.status !== 'active' || !verifyPassword(password, user.passwordHash)) {

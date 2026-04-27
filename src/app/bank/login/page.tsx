@@ -8,8 +8,8 @@ import Link from 'next/link';
 export default function BankLoginPage() {
   const router = useRouter();
   const { setAuth } = useBankAuthStore();
-  const [email, setEmail] = useState('admin@z3c.local');
-  const [password, setPassword] = useState('ChangeMe123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -94,8 +94,7 @@ export default function BankLoginPage() {
           </div>
 
           <div className="bank-login-hint">
-            <strong>Demo users:</strong> admin@z3c.local, maker@z3c.local, checker@z3c.local, approver@z3c.local, auditor@z3c.local<br />
-            <strong>Password:</strong> ChangeMe123!
+            Use your registered bank admin credentials to access your organization workspace.
           </div>
 
           <button type="submit" className="btn-pro w-full h-9 mt-2" disabled={isLoading}>
