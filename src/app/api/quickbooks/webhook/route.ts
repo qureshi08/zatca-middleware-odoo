@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/lib/quickbooks/webhook';
 import { fetchInvoiceFromQuickbooks } from '@/lib/quickbooks/fetch';
-import { mapQboToZatca } from '@/lib/quickbooks/mapper';
+import { mapQBInvoiceToZatca } from '@/lib/quickbooks/mapper';
+import { generateInvoiceAction } from '@/lib/zatca/actions';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get('intuit-signature') ?? '';
 
-  // In a real server-side environment, we'd pull these from a DB.
-  // For this middleware, we assume the environment variables or a specific config is set.
+  // 1. Get QuickBooks Global Secret (for all webhooks)
   const clientSecret = process.env.QB_CLIENT_SECRET || '';
 
   const isValid = await verifyWebhookSignature(rawBody, signature, clientSecret);
@@ -25,19 +26,27 @@ export async function POST(req: NextRequest) {
     if (!invoiceId) continue;
 
     try {
-      const qboInvoice = await fetchInvoiceFromQuickbooks(realmId, invoiceId);
-      const zatcaInvoice = mapQboToZatca(qboInvoice);
+      // 2. Map realmId to an Organization in our DB
+      const { data: config } = await supabaseAdmin
+        .from('quickbooks_config')
+        .select('organization_id')
+        .eq('realm_id', realmId)
+        .maybeSingle();
+
+      if (!config) {
+          console.error(`[QB-WEBHOOK] Unknown Realm ID: ${realmId}`);
+          continue;
+      }
+
+      // 3. Fetch and Process Invoice
+      const qboInvoice = await fetchInvoiceFromQuickbooks(config.organization_id, realmId, invoiceId);
+      const zatcaInvoice = mapQBInvoiceToZatca(qboInvoice);
       
-      // Submit to ZATCA Middleware
-      const middlewareUrl = new URL('/api/zatca/invoices/submit', req.url);
-      await fetch(middlewareUrl.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(zatcaInvoice),
-      });
+      // 4. Submit directly to ZATCA engine
+      await generateInvoiceAction(zatcaInvoice, config.organization_id);
       
     } catch (e: any) {
-      console.error('QuickBooks webhook processing error:', e);
+      console.error('[QB-WEBHOOK-FATAL]:', e.message);
     }
   }
 

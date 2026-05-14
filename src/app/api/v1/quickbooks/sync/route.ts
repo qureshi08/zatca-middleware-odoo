@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getValidQBToken } from '@/lib/quickbooks/server-auth';
 import { mapQBInvoiceToZatca } from '@/lib/quickbooks/mapper';
-import { ZatcaService } from '@/lib/zatca-service';
+import { generateInvoiceAction } from '@/lib/zatca/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
       .eq('organization_id', orgId)
       .single();
 
+    if (!config?.realm_id) {
+      return NextResponse.json({ error: 'QuickBooks not configured for this organization' }, { status: 400 });
+    }
+
     const qboUrl = `https://quickbooks.api.intuit.com/v3/company/${config.realm_id}/invoice/${invoiceId}?minorversion=65`;
     const qboResp = await fetch(qboUrl, {
       headers: {
@@ -44,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Submit to ZATCA Engine
     // Note: ZatcaService.submitInvoice is our internal engine
-    const result = await ZatcaService.submitInvoice(orgId, zatcaInvoice);
+    const result = await generateInvoiceAction(zatcaInvoice, orgId);
 
     return NextResponse.json({
       success: true,
