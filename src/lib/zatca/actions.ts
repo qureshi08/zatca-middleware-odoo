@@ -4,16 +4,58 @@ import { buildAndGenerateXML, updateInvoiceWithSignature } from './xml/builder';
 import { hashInvoiceForSubmission, generatePreviousInvoiceHash } from './crypto/hash';
 import { signInvoiceHash } from './crypto/signing';
 import { generateCompleteQRCode, formatTimestampForQR } from './qr/generator';
-import { TEST_SELLER } from './test-data';
 import { SimpleInvoiceInput } from './xml/builder';
 import { getOnboardingStatus } from './onboarding-storage';
 import { supabaseAdmin } from '../supabase';
+import type { SellerParty } from '@/types/zatca';
 
 import { generateZATCASignatureXML } from './xml/signature';
 import { getCertificateHash, parseCertificate, getCertificateSignature } from './crypto/signing';
 import { validateInvoiceCompliance } from './xml/validator';
 import { submitClearance, submitReporting } from './api/client';
 import { processZATCATransaction } from './transactions';
+
+/**
+ * Fetch the seller party (issuer of the invoice) for an organization,
+ * pulling registered name, VAT number, and CR / Tax ID from the
+ * `organizations` table.
+ *
+ * Postal address fields are not yet captured during registration — see
+ * the prerequisites note shared with stakeholders. For now these fall
+ * back to per-org placeholder values so signing still succeeds against
+ * the ZATCA Compliance Simulator (sandbox). In production this helper
+ * should hard-fail if address fields are missing.
+ */
+async function getSellerForOrganization(orgId: string): Promise<SellerParty> {
+    const { data: org, error } = await supabaseAdmin
+        .from('organizations')
+        .select('name, tax_number, vat_number')
+        .eq('id', orgId)
+        .maybeSingle();
+
+    if (error || !org) {
+        throw new Error(`Organization not found for ZATCA submission (orgId=${orgId})`);
+    }
+    if (!org.name || !org.vat_number || !org.tax_number) {
+        throw new Error('Organization is missing required fields (name, vat_number, tax_number) for invoice signing.');
+    }
+
+    return {
+        partyIdentification: { id: org.tax_number, schemeID: 'CRN' },
+        postalAddress: {
+            // TODO(QB-CUSTOMER-ADDRESS): collect during registration / onboarding.
+            // Sandbox-safe placeholders so the XML validates structurally.
+            streetName: 'Registered Address',
+            buildingNumber: '0000',
+            citySubdivisionName: 'Riyadh',
+            cityName: 'Riyadh',
+            postalZone: '11564',
+            country: 'SA',
+        },
+        partyTaxScheme: { companyID: org.vat_number },
+        partyLegalEntity: { registrationName: org.name },
+    };
+}
 
 export async function validateInvoiceAction(xml: string) {
     try {
@@ -38,14 +80,17 @@ export async function generateInvoiceAction(input: SimpleInvoiceInput, orgId: st
         const privateKey = status.privateKey;
         const certificate = status.productionCSID || status.complianceCSID!;
 
-        // 2. Fetch or generate previous invoice hash for this organization
+        // 2. Resolve the seller from this organization's registered identity.
+        const seller = await getSellerForOrganization(orgId);
+
+        // 3. Fetch or generate previous invoice hash for this organization
         // In a real multi-tenant app, we'd query the organization's last successful transaction
         const previousInvoiceHash = generatePreviousInvoiceHash(null);
 
-        // 3. Build invoice
+        // 4. Build invoice
         const { invoice, xml } = buildAndGenerateXML({
             ...input,
-            seller: TEST_SELLER, // TODO: Replace with dynamic organization details
+            seller,
             previousInvoiceHash,
         });
 
@@ -70,11 +115,11 @@ export async function generateInvoiceAction(input: SimpleInvoiceInput, orgId: st
             certSerialNumber: serialNumber
         });
 
-        // 7. Generate QR code
+        // 7. Generate QR code (using this organization's registered identity)
         const certSignature = getCertificateSignature(certificate);
         const { tlvData, qrCodeImage } = await generateCompleteQRCode({
-            sellerName: TEST_SELLER.partyLegalEntity.registrationName,
-            vatRegistrationNumber: TEST_SELLER.partyTaxScheme.companyID,
+            sellerName: seller.partyLegalEntity.registrationName,
+            vatRegistrationNumber: seller.partyTaxScheme.companyID,
             timestamp: formatTimestampForQR(new Date()),
             invoiceTotal: invoice.legalMonetaryTotal.taxInclusiveAmount,
             vatTotal: invoice.taxTotal[0].taxAmount,
