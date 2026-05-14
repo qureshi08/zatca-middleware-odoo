@@ -114,7 +114,7 @@ export default function QuickbooksSetupPage() {
                                 ? 'Compliance CSID issued. Continue to run the compliance test suite and request your Production CSID.'
                                 : 'Generate your CSR, register with ZATCA, run the 6-document compliance suite, and receive your Production CSID. Required before any invoice can be cleared.'
                         }
-                        ctaHref="/onboarding"
+                        ctaHref="/quickbooks/onboarding"
                         ctaLabel={zatcaPartial ? 'Resume onboarding →' : 'Start ZATCA onboarding →'}
                     />
 
