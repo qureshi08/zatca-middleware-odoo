@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getValidQBToken } from '@/lib/quickbooks/server-auth';
+import { QBO_API_BASE } from '@/lib/quickbooks/fetch';
 import { mapQBInvoiceToZatca } from '@/lib/quickbooks/mapper';
 import { generateInvoiceAction } from '@/lib/zatca/actions';
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'QuickBooks not configured for this organization' }, { status: 400 });
     }
 
-    const qboUrl = `https://quickbooks.api.intuit.com/v3/company/${config.realm_id}/invoice/${invoiceId}?minorversion=65`;
+    const qboUrl = `${QBO_API_BASE}/v3/company/${config.realm_id}/invoice/${invoiceId}?minorversion=65`;
     const qboResp = await fetch(qboUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,

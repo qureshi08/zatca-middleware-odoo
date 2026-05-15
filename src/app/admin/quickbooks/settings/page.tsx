@@ -4,6 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Settings, Link, CheckCircle2, XCircle, RefreshCw, LogOut, Info } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import InvoiceImportSection from './InvoiceImportSection';
 
 function QuickbooksSettingsContent() {
   const router = useRouter();
@@ -271,6 +272,9 @@ function QuickbooksSettingsContent() {
           )}
         </div>
       </div>
+
+      {/* Invoice Import & ZATCA Clearance */}
+      {orgId && <InvoiceImportSection orgId={orgId} isConnected={isConnected} />}
 
       {/* Guide Section */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-white">
