@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseAdmin
       .from('quickbooks_invoices')
       .select(
-        'id, qb_invoice_id, qb_doc_number, invoice_date, customer_name, total_amount, currency, zatca_status, zatca_invoice_type, zatca_error, zatca_cleared_at'
+        'id, qb_invoice_id, qb_doc_number, invoice_date, customer_name, total_amount, currency, zatca_status, zatca_invoice_type, zatca_error, zatca_validation_messages, zatca_cleared_at'
       )
       .eq('organization_id', orgId)
       .order('invoice_date', { ascending: false, nullsFirst: false });

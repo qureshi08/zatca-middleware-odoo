@@ -6,11 +6,19 @@ import { generateInvoiceAction } from '@/lib/zatca/actions';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+interface ValidationMessage {
+  code: string;
+  category?: string;
+  message: string;
+  status?: 'ERROR' | 'WARNING';
+}
+
 interface ClearResult {
   id: string;
   qb_invoice_id: string;
   status: 'cleared' | 'failed' | 'skipped';
   error?: string;
+  validationMessages?: ValidationMessage[];
 }
 
 export async function POST(req: NextRequest) {
@@ -54,15 +62,24 @@ export async function POST(req: NextRequest) {
           zatca_status: 'submitted',
           zatca_submitted_at: new Date().toISOString(),
           zatca_error: null,
+          zatca_validation_messages: [],
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id);
 
+      let validationMessages: ValidationMessage[] = [];
       try {
         const invoiceType: 'standard' | 'simplified' =
           row.zatca_invoice_type === 'simplified' ? 'simplified' : 'standard';
         const zatcaInput = mapQBInvoiceToZatca(row.raw_qb_payload, invoiceType);
-        const result = await generateInvoiceAction(zatcaInput, orgId);
+        const result: any = await generateInvoiceAction(zatcaInput, orgId);
+
+        // Capture validation messages from both success (warnings) and
+        // failure (errors) paths so the row can show them either way.
+        validationMessages =
+          result?.validationMessages ??
+          result?.data?.validationMessages ??
+          [];
 
         if (!result.success || !result.data) {
           throw new Error(result.error || 'Unknown ZATCA failure');
@@ -75,6 +92,7 @@ export async function POST(req: NextRequest) {
             zatca_cleared_xml: result.data.xml,
             zatca_qr: result.data.qrCode,
             zatca_error: null,
+            zatca_validation_messages: validationMessages,
             zatca_cleared_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
@@ -84,14 +102,28 @@ export async function POST(req: NextRequest) {
           id: row.id,
           qb_invoice_id: row.qb_invoice_id,
           status: 'cleared',
+          validationMessages,
         });
       } catch (e: any) {
         const errMsg = e.message || String(e);
+        // If we have structured validation messages, append a one-line
+        // summary to the human-readable error so the table row shows
+        // something more useful than "1 rule(s) failed".
+        const summary =
+          validationMessages.length > 0
+            ? validationMessages
+                .filter((m) => m.status !== 'WARNING')
+                .map((m) => `${m.code}: ${m.message}`)
+                .join(' | ')
+            : '';
+        const fullErr = summary ? `${errMsg} — ${summary}` : errMsg;
+
         await supabaseAdmin
           .from('quickbooks_invoices')
           .update({
             zatca_status: 'failed',
-            zatca_error: errMsg,
+            zatca_error: fullErr,
+            zatca_validation_messages: validationMessages,
             updated_at: new Date().toISOString(),
           })
           .eq('id', row.id);
@@ -100,7 +132,8 @@ export async function POST(req: NextRequest) {
           id: row.id,
           qb_invoice_id: row.qb_invoice_id,
           status: 'failed',
-          error: errMsg,
+          error: fullErr,
+          validationMessages,
         });
       }
     }

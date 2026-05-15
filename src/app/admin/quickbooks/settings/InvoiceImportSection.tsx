@@ -24,6 +24,13 @@ import {
 type ZatcaStatus = 'pending' | 'submitted' | 'cleared' | 'failed';
 type ZatcaType = 'standard' | 'simplified';
 
+interface ValidationMessage {
+  code: string;
+  category?: string;
+  message: string;
+  status?: 'ERROR' | 'WARNING';
+}
+
 interface InvoiceRow {
   id: string;
   qb_invoice_id: string;
@@ -35,6 +42,7 @@ interface InvoiceRow {
   zatca_status: ZatcaStatus;
   zatca_invoice_type: ZatcaType;
   zatca_error: string | null;
+  zatca_validation_messages: ValidationMessage[] | null;
   zatca_cleared_at: string | null;
 }
 
@@ -979,6 +987,53 @@ function DetailDrawer({
                         <div className="text-slate-700 whitespace-pre-wrap">{qb.PrivateNote}</div>
                       </div>
                     )}
+                  </div>
+                </SectionCard>
+              )}
+
+              {/* Validation messages */}
+              {invoice.zatca_validation_messages && invoice.zatca_validation_messages.length > 0 && (
+                <SectionCard
+                  title={`Validation Report (${invoice.zatca_validation_messages.length})`}
+                  icon={<AlertTriangle size={14} />}
+                >
+                  <div className="space-y-2">
+                    {invoice.zatca_validation_messages.map((m, i) => {
+                      const isError = (m.status ?? 'ERROR') === 'ERROR';
+                      return (
+                        <div
+                          key={i}
+                          className={`p-3 rounded-xl border text-[12px] ${
+                            isError
+                              ? 'bg-red-50 border-red-200'
+                              : 'bg-amber-50 border-amber-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                                isError
+                                  ? 'bg-red-200 text-red-900'
+                                  : 'bg-amber-200 text-amber-900'
+                              }`}
+                            >
+                              {isError ? 'ERROR' : 'WARNING'}
+                            </span>
+                            <code className="text-[11px] font-bold text-slate-800">
+                              {m.code}
+                            </code>
+                            {m.category && (
+                              <span className="text-[10px] uppercase text-slate-500">
+                                {m.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className={isError ? 'text-red-800' : 'text-amber-800'}>
+                            {m.message}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </SectionCard>
               )}

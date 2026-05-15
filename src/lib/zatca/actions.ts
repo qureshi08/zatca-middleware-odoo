@@ -142,7 +142,13 @@ export async function generateInvoiceAction(input: SimpleInvoiceInput, orgId: st
         );
 
         if (!transResult.success) {
-            throw new Error(`ZATCA Verification Failed: ${transResult.error || 'Check validation results'}`);
+            // Return structured failure with validationMessages preserved so callers
+            // can persist and display exactly which rules failed.
+            return {
+                success: false,
+                error: transResult.error || 'ZATCA Verification Failed',
+                validationMessages: transResult.validationMessages || [],
+            };
         }
 
         const resultData = {
