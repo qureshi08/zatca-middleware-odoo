@@ -157,50 +157,41 @@ async function handleSimulation(
 ): Promise<TransactionResult> {
     console.log(`[ZATCA SIMULATION] Validating ${type} transaction for ${invoiceId}`);
 
-    const errors: any[] = [];
+    // Run the comprehensive ZATCA business-rule validator.
+    // The validator returns structured errors and warnings that mirror what
+    // real ZATCA Compliance/Production endpoints would surface.
+    const { validateZatcaXml } = await import('./validation/rules');
+    const report = validateZatcaXml(xml, type);
 
-    // Basic simulation rules — kept aligned with real ZATCA validators.
-
-    // BR-KSA-26: unit price must be positive (>0), not just non-negative.
-    if (/<cbc:PriceAmount [^>]*>(-|0\.0+\s*<)/.test(xml)) {
-        errors.push({
-            code: 'BR-KSA-26',
-            category: 'KSA',
-            message: 'Unit price (BT-146) must be a positive value greater than zero.',
-            status: 'ERROR'
-        });
-    }
-
-    // BR-KSA-F-04 / BR-CO-15: monetary totals must be positive (>0).
-    // Catches the case where an invoice was created in QB with all zero-priced
-    // lines, which the simulator was previously letting through.
-    const taxInclusiveMatch = xml.match(
-        /<cbc:TaxInclusiveAmount [^>]*>([\d.]+)<\/cbc:TaxInclusiveAmount>/
-    );
-    if (taxInclusiveMatch && Number(taxInclusiveMatch[1]) <= 0) {
-        errors.push({
-            code: 'BR-KSA-F-04',
-            category: 'KSA',
-            message:
-                'Invoice total amount with VAT (BT-112) must be greater than zero. Zero-value invoices are not permitted.',
-            status: 'ERROR'
-        });
-    }
-
-    if (errors.length > 0) {
+    if (report.errors.length > 0) {
         return {
             success: false,
             status: 'REJECTED',
             type,
             invoiceId,
             uuid,
-            error: 'ZATCA Validation Error (Simulated)',
-            validationMessages: errors,
+            error: `ZATCA Validation Error (Simulated): ${report.errors.length} rule(s) failed`,
+            validationMessages: report.errors,
             timestamp: new Date().toISOString()
         };
     }
 
-    const triggerWarning = xml.includes('TRIGGER_ZATCA_WARNING');
+    // Optional manual trigger kept for QA: any invoice containing the literal
+    // string TRIGGER_ZATCA_WARNING is reported with a synthetic warning even
+    // if no real warning rules fire.
+    const manualWarning = xml.includes('TRIGGER_ZATCA_WARNING');
+    const allWarnings = manualWarning
+        ? [
+            ...report.warnings,
+            {
+                code: 'SIM_W_001',
+                category: 'KSA' as const,
+                status: 'WARNING' as const,
+                message: 'Simulated Warning: Invoice accepted but requires minor technical review.'
+            }
+        ]
+        : report.warnings;
+
     let clearedXml = undefined;
     if (type === 'standard') {
         clearedXml = xml.replace('</cbc:ID>', '</cbc:ID>\n    <!-- SIMULATED_STAMP_BY_ZATCA_SIMULATOR -->');
@@ -208,16 +199,15 @@ async function handleSimulation(
 
     return {
         success: true,
-        status: triggerWarning ? 'WARNING' : (type === 'standard' ? 'CLEARED' : 'REPORTED'),
+        status: allWarnings.length > 0
+            ? 'WARNING'
+            : (type === 'standard' ? 'CLEARED' : 'REPORTED'),
         type,
         invoiceId,
         uuid,
         clearedXml,
         originalXml: xml,
-        validationMessages: triggerWarning ? [{
-            code: 'SIM_W_001',
-            message: 'Simulated Warning: Invoice accepted but requires minor technical review.'
-        }] : [],
+        validationMessages: allWarnings,
         timestamp: new Date().toISOString()
     };
 }
