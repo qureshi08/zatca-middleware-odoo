@@ -35,6 +35,9 @@ export function generateSimplifiedInvoiceXML(invoice: ZATCAInvoice): string {
         .ele('cbc:ID').txt('urn:oasis:names:specification:ubl:signature:1').up()
         .ele('sbc:ReferencedSignatureID').txt('urn:oasis:names:specification:ubl:signature:Invoice');
 
+    // Customization ID (BT-24-1) — declares which ZATCA spec the invoice conforms to
+    doc.ele('cbc:CustomizationID').txt('BR-KSA-CB');
+
     // Profile ID
     doc.ele('cbc:ProfileID').txt('reporting:1.0');
 

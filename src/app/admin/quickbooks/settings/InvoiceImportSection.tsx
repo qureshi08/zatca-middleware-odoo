@@ -73,6 +73,9 @@ export default function InvoiceImportSection({ orgId, isConnected }: Props) {
   const [detail, setDetail] = useState<DetailInvoice | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [resubmitTarget, setResubmitTarget] = useState<InvoiceRow | null>(null);
+  const [resubmitState, setResubmitState] = useState<
+    { phase: 'idle' | 'submitting' } | { phase: 'done'; outcome: 'cleared' | 'failed'; error?: string }
+  >({ phase: 'idle' });
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const flashToast = (type: 'success' | 'error', text: string) => {
@@ -174,8 +177,31 @@ export default function InvoiceImportSection({ orgId, isConnected }: Props) {
   const handleResubmit = async () => {
     if (!resubmitTarget) return;
     const id = resubmitTarget.id;
+    setResubmitState({ phase: 'submitting' });
+    setClearing(true);
+    try {
+      const res = await fetch('/api/quickbooks/invoices/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, invoiceIds: [id], force: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Clearance failed');
+      const result = data.results?.[0];
+      const outcome = result?.status === 'cleared' ? 'cleared' : 'failed';
+      const error = outcome === 'failed' ? result?.error || 'Unknown failure' : undefined;
+      setResubmitState({ phase: 'done', outcome, error });
+      await fetchInvoices();
+    } catch (e: any) {
+      setResubmitState({ phase: 'done', outcome: 'failed', error: e.message });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const closeResubmitModal = () => {
     setResubmitTarget(null);
-    await submitToZatca([id], true);
+    setResubmitState({ phase: 'idle' });
   };
 
   const openDetail = async (id: string) => {
@@ -557,7 +583,7 @@ export default function InvoiceImportSection({ orgId, isConnected }: Props) {
 
       {/* Resubmit-or-edit prompt for failed rows */}
       {resubmitTarget && (
-        <Modal onClose={() => setResubmitTarget(null)}>
+        <Modal onClose={resubmitState.phase === 'submitting' ? () => {} : closeResubmitModal}>
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <AlertTriangle className="text-red-500" />
@@ -566,34 +592,99 @@ export default function InvoiceImportSection({ orgId, isConnected }: Props) {
             <div className="p-3 rounded-xl bg-red-50 text-red-700 text-[12px] font-mono break-words">
               {resubmitTarget.zatca_error ?? 'Unknown error'}
             </div>
-            <p className="text-sm text-slate-600">What would you like to do?</p>
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                onClick={handleResubmit}
-                className="p-3 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-left flex items-start gap-3"
-              >
-                <RefreshCw size={18} className="text-blue-600 mt-0.5 shrink-0" />
-                <div>
-                  <div className="font-semibold text-slate-800">Resubmit as-is</div>
-                  <div className="text-[11px] text-slate-500">
-                    Run the same payload through ZATCA again. Useful for transient failures.
+
+            {resubmitState.phase === 'idle' && (
+              <>
+                <p className="text-sm text-slate-600">What would you like to do?</p>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={handleResubmit}
+                    className="p-3 rounded-xl border border-blue-200 bg-blue-50 hover:bg-blue-100 text-left flex items-start gap-3"
+                  >
+                    <RefreshCw size={18} className="text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-slate-800">Resubmit as-is</div>
+                      <div className="text-[11px] text-slate-500">
+                        Run the same payload through ZATCA again. Useful for transient failures.
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={closeResubmitModal}
+                    className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left flex items-start gap-3"
+                  >
+                    <Pencil size={18} className="text-slate-600 mt-0.5 shrink-0" />
+                    <div>
+                      <div className="font-semibold text-slate-800">Edit in QuickBooks first</div>
+                      <div className="text-[11px] text-slate-500">
+                        Close this prompt, fix the invoice in QuickBooks, then re-import to refresh
+                        the payload.
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {resubmitState.phase === 'submitting' && (
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 flex items-center gap-3">
+                <Loader2 size={18} className="text-blue-600 animate-spin shrink-0" />
+                <div className="text-sm text-blue-800">Resubmitting invoice to ZATCA…</div>
+              </div>
+            )}
+
+            {resubmitState.phase === 'done' && resubmitState.outcome === 'cleared' && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-xl border border-green-200 bg-green-50 flex items-center gap-3">
+                  <ShieldCheck size={20} className="text-green-700 shrink-0" />
+                  <div>
+                    <div className="font-bold text-green-800">Cleared by ZATCA</div>
+                    <div className="text-[12px] text-green-700">
+                      The row has been updated. Open Detail to see the validation report and QR.
+                    </div>
                   </div>
                 </div>
-              </button>
-              <button
-                onClick={() => setResubmitTarget(null)}
-                className="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-left flex items-start gap-3"
-              >
-                <Pencil size={18} className="text-slate-600 mt-0.5 shrink-0" />
-                <div>
-                  <div className="font-semibold text-slate-800">Edit in QuickBooks first</div>
-                  <div className="text-[11px] text-slate-500">
-                    Close this prompt, fix the invoice in QuickBooks, then re-import to refresh
-                    the payload.
+                <button
+                  onClick={closeResubmitModal}
+                  className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+
+            {resubmitState.phase === 'done' && resubmitState.outcome === 'failed' && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-xl border border-red-200 bg-red-50 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <XCircle size={18} className="text-red-700 shrink-0" />
+                    <div className="font-bold text-red-800">Resubmit failed</div>
+                  </div>
+                  <div className="text-[12px] text-red-700 font-mono break-words">
+                    {resubmitState.error ?? 'Unknown error'}
+                  </div>
+                  <div className="text-[11px] text-red-600 pt-1">
+                    Open the Detail drawer for the full Validation Report.
                   </div>
                 </div>
-              </button>
-            </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={closeResubmitModal}
+                    className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => {
+                      setResubmitState({ phase: 'idle' });
+                    }}
+                    className="flex-1 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
