@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:invoice": "tsx src/lib/zatca/test-complete.ts",
-    "git:push": "git add -A && git commit -m \"fix: handle Odoo 17 attachment schema where datas field is replaced by raw\" && git push"
+    "git:push": "git add -A && git commit -m \"fix: populate buyer details for both simplified and standard invoices in Odoo mapping\" && git push"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",

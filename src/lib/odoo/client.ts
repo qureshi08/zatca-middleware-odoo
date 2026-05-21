@@ -359,8 +359,8 @@ export class OdooClient {
             type,
             documentType,
             invoiceId: move.name || `INV-${move.id}`,
-            buyer: isB2B ? {
-                partyIdentification: { id: buyer.vat || '300000000000003', schemeID: 'TXID' },
+            buyer: {
+                partyIdentification: { id: buyer.vat || 'UNREGISTERED', schemeID: buyer.vat ? 'TXID' : 'NAT' },
                 postalAddress: {
                     streetName: buyer.street || 'Street Address',
                     buildingNumber: '1000',
@@ -370,16 +370,16 @@ export class OdooClient {
                     country: countryCode
                 },
                 partyTaxScheme: { companyID: buyer.vat || '' },
-                partyLegalEntity: { registrationName: buyer.name || 'B2B Customer' },
+                partyLegalEntity: { registrationName: buyer.name || 'Walk-in Customer' },
                 // Keep the flat fields for backward compatibility
-                name: buyer.name || 'B2B Customer',
+                name: buyer.name || 'Walk-in Customer',
                 vatNumber: buyer.vat || '',
                 street: buyer.street || 'Street Address',
                 building: '1000',
                 city: buyer.city || 'Riyadh',
                 postalCode: buyer.zip || '11564',
                 country: countryCode
-            } : undefined,
+            },
             items,
             odooRaw: move,
             ...(isAdjustment && {
