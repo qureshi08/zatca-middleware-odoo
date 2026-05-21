@@ -161,6 +161,7 @@ export async function generateInvoiceAction(input: SimpleInvoiceInput, orgId: st
             qrCode: qrCodeImage,
             hash: invoiceHash,
             signature,
+            seller,
             createdAt: new Date().toISOString(),
         };
 

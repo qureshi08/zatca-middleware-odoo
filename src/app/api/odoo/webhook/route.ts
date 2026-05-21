@@ -3,6 +3,7 @@ import { AuthService } from '@/lib/auth-service';
 import { generateInvoiceAction } from '@/lib/zatca/actions';
 import { supabaseAdmin } from '@/lib/supabase';
 import { OdooClient } from '@/lib/odoo/client';
+import { generateInvoicePDF } from '@/lib/zatca/pdf/generator';
 
 /**
  * POST /api/odoo/webhook
@@ -224,11 +225,38 @@ export async function POST(req: NextRequest) {
             // 5. Write back results to Odoo
             try {
                 if (result.success && result.data) {
+                    // Generate PDF compliance report with embedded QR code
+                    let pdfBase64: string | undefined;
+                    try {
+                        const pdfBuffer = await generateInvoicePDF({
+                            invoice: {
+                                invoice_number: odooInvoice.invoiceId,
+                                invoice_type: odooInvoice.type,
+                                status: (result.data.status === 'CLEARED' || result.data.status === 'REPORTED') ? 'cleared' : 'submitted',
+                                created_at: new Date().toISOString(),
+                                payload: {
+                                    ...odooInvoice,
+                                    seller: result.data.seller,
+                                    items: odooInvoice.items || [],
+                                }
+                            },
+                            qrCode: result.data.qrCode,
+                            hash: result.data.hash
+                        });
+                        pdfBase64 = pdfBuffer.toString('base64');
+                    } catch (pdfErr: any) {
+                        console.error(`[Webhook PDF Gen Error] Invoice ID ${odooInvoiceId}:`, pdfErr.message);
+                    }
+
+                    const xmlBase64 = result.data.xml ? Buffer.from(result.data.xml).toString('base64') : undefined;
+
                     await odoo.writebackStatus(Number(odooInvoiceId), {
                         status: (result.data.status === 'CLEARED' || result.data.status === 'REPORTED') ? 'cleared' : 'submitted',
                         uuid: result.data.uuid,
                         qrCode: result.data.qrCode,
-                        xml: result.data.xml
+                        xml: result.data.xml,
+                        pdfBase64,
+                        xmlBase64
                     });
                 } else {
                     await odoo.writebackStatus(Number(odooInvoiceId), {

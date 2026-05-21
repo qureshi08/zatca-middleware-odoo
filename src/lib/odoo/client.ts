@@ -99,6 +99,11 @@ export class OdooClient {
                     if (model === 'account.move' && kwMethod === 'write') {
                         return true;
                     }
+                    if (model === 'ir.attachment') {
+                        if (kwMethod === 'search') return [];
+                        if (kwMethod === 'unlink') return true;
+                        if (kwMethod === 'create') return 12345;
+                    }
                     if (model === 'mail.message' && kwMethod === 'create') {
                         return 999;
                     }
@@ -355,6 +360,18 @@ export class OdooClient {
             documentType,
             invoiceId: move.name || `INV-${move.id}`,
             buyer: isB2B ? {
+                partyIdentification: { id: buyer.vat || '300000000000003', schemeID: 'TXID' },
+                postalAddress: {
+                    streetName: buyer.street || 'Street Address',
+                    buildingNumber: '1000',
+                    citySubdivisionName: buyer.city || 'Riyadh',
+                    cityName: buyer.city || 'Riyadh',
+                    postalZone: buyer.zip || '11564',
+                    country: countryCode
+                },
+                partyTaxScheme: { companyID: buyer.vat || '' },
+                partyLegalEntity: { registrationName: buyer.name || 'B2B Customer' },
+                // Keep the flat fields for backward compatibility
                 name: buyer.name || 'B2B Customer',
                 vatNumber: buyer.vat || '',
                 street: buyer.street || 'Street Address',
@@ -373,7 +390,7 @@ export class OdooClient {
     }
 
     /**
-     * Writes ZATCA clearance/reporting data back to the invoice in Odoo
+     * Writes ZATCA compliance results back to the invoice in Odoo, including attaching PDF & XML files.
      */
     async writebackStatus(
         invoiceId: number,
@@ -383,6 +400,8 @@ export class OdooClient {
             qrCode?: string;
             xml?: string;
             error?: string;
+            pdfBase64?: string;
+            xmlBase64?: string;
         }
     ): Promise<boolean> {
         console.log(`[Odoo] Writing back status ${data.status} for Odoo invoice ID ${invoiceId}...`);
@@ -400,10 +419,55 @@ export class OdooClient {
             writeData
         ]);
 
+        // Attach signed XML and compliance PDF directly to the invoice record in Odoo
+        if (data.status === 'cleared' && (data.pdfBase64 || data.xmlBase64)) {
+            try {
+                // Find existing attachments for this invoice to prevent duplicates
+                const existingAttachments = await this.execute('ir.attachment', 'search', [
+                    [
+                        ['res_model', '=', 'account.move'],
+                        ['res_id', '=', invoiceId],
+                        ['name', 'in', [`ZATCA_Cleared_${invoiceId}.pdf`, `ZATCA_Signed_${invoiceId}.xml`]]
+                    ]
+                ]);
+
+                if (existingAttachments && existingAttachments.length > 0) {
+                    await this.execute('ir.attachment', 'unlink', [existingAttachments]);
+                    console.log(`[Odoo] Cleaned up ${existingAttachments.length} old ZATCA attachments for invoice ${invoiceId}`);
+                }
+
+                if (data.pdfBase64) {
+                    await this.execute('ir.attachment', 'create', [{
+                        name: `ZATCA_Cleared_${invoiceId}.pdf`,
+                        type: 'binary',
+                        datas: data.pdfBase64,
+                        res_model: 'account.move',
+                        res_id: invoiceId,
+                        mimetype: 'application/pdf'
+                    }]);
+                    console.log(`[Odoo] Created PDF attachment ZATCA_Cleared_${invoiceId}.pdf for invoice ${invoiceId}`);
+                }
+
+                if (data.xmlBase64) {
+                    await this.execute('ir.attachment', 'create', [{
+                        name: `ZATCA_Signed_${invoiceId}.xml`,
+                        type: 'binary',
+                        datas: data.xmlBase64,
+                        res_model: 'account.move',
+                        res_id: invoiceId,
+                        mimetype: 'application/xml'
+                    }]);
+                    console.log(`[Odoo] Created XML attachment ZATCA_Signed_${invoiceId}.xml for invoice ${invoiceId}`);
+                }
+            } catch (attachErr: any) {
+                console.warn('[Odoo] Failed to manage attachments:', attachErr.message);
+            }
+        }
+
         // Post a message in the Odoo chatter/activity log
         try {
             const message = data.status === 'cleared' 
-                ? `🚀 <b>ZATCA Compliance: Invoice Cleared successfully!</b><br/>UUID: ${data.uuid}`
+                ? `🚀 <b>ZATCA Compliance: Invoice Cleared successfully!</b><br/>UUID: ${data.uuid}<br/>PDF and XML have been generated and attached.`
                 : `❌ <b>ZATCA Compliance: Submission Failed</b><br/>Error: ${data.error}`;
             
             await this.execute('mail.message', 'create', [{
