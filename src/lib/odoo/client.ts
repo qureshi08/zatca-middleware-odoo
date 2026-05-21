@@ -345,15 +345,43 @@ export class OdooClient {
         
         // Determine document type (388 = Invoice, 381 = Credit Note, 383 = Debit Note)
         let documentType = '388';
+        const refLower = (move.ref || '').toLowerCase();
+        
         if (move.x_zatca_document_type) {
             documentType = move.x_zatca_document_type;
         } else if (move.move_type === 'out_refund') {
             documentType = '381';
+        } else if (refLower.includes('debit note') || refLower.includes('debit of')) {
+            documentType = '383';
         } else {
             documentType = '388';
         }
 
         const isAdjustment = documentType === '381' || documentType === '383';
+
+        // Extract original invoice ID for adjustment references
+        let originalInvoiceId = '';
+        if (isAdjustment) {
+            if (move.reversed_entry_id && move.reversed_entry_id[1]) {
+                originalInvoiceId = move.reversed_entry_id[1];
+            } else if (move.ref) {
+                // Remove prefixes like "Reversal of:", "Debit Note of:", or "Debit of:"
+                const cleanRef = move.ref
+                    .replace(/Reversal of:/i, '')
+                    .replace(/Debit Note of:/i, '')
+                    .replace(/Debit of:/i, '')
+                    .trim();
+                // Take the first part before any comma (e.g. "Reversal of: INV/2026/00004, testing")
+                const potentialId = cleanRef.split(',')[0].trim();
+                if (potentialId && (potentialId.includes('/') || potentialId.startsWith('INV') || potentialId.startsWith('RINV'))) {
+                    originalInvoiceId = potentialId;
+                }
+            }
+
+            if (!originalInvoiceId) {
+                originalInvoiceId = move.invoice_origin || 'INV-0000';
+            }
+        }
 
         return {
             type,
@@ -383,7 +411,7 @@ export class OdooClient {
             items,
             odooRaw: move,
             ...(isAdjustment && {
-                originalInvoiceId: (move.reversed_entry_id && move.reversed_entry_id[1]) || move.invoice_origin || 'INV-0000',
+                originalInvoiceId,
                 creditReason: move.ref || move.invoice_origin || 'Adjustment Note'
             })
         };
